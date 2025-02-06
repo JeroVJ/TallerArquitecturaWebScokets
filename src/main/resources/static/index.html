@@ -7,13 +7,14 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.0/sockjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
     <style>
-        #map {
-            height: 500px;
-            width: 100%;
-        }
+        #map { height: 500px; width: 100%; }
+        #status { padding: 10px; margin: 10px; background-color: #f0f0f0; }
+        #coordinates { padding: 10px; margin: 10px; background-color: #e0e0e0; }
     </style>
 </head>
 <body>
+<div id="status">Estado: Desconectado</div>
+<div id="coordinates">Coordenadas: Esperando datos...</div>
 <div id="map"></div>
 <script>
     // Inicializar mapa
@@ -23,19 +24,57 @@
     }).addTo(map);
 
     var marker = L.marker([40.416775, -3.703790]).addTo(map);
+    var statusDiv = document.getElementById('status');
+    var coordsDiv = document.getElementById('coordinates');
+    var lastUpdate = Date.now();
 
-    // Conectar al WebSocket
-    var socket = new SockJS('/ws');
-    var stompClient = Stomp.over(socket);
+    function connect() {
+        var socket = new SockJS('/ws');
+        var stompClient = Stomp.over(socket);
 
-    stompClient.connect({}, function(frame) {
-        console.log('Conectado: ' + frame);
-        stompClient.subscribe('/topic/location', function(message) {
-            var location = JSON.parse(message.body);
-            marker.setLatLng([location.lat, location.lon]);
-            map.panTo([location.lat, location.lon]);
+        stompClient.connect({}, function(frame) {
+            statusDiv.innerHTML = 'Estado: Conectado al servidor';
+            console.log('Conectado: ' + frame);
+
+            stompClient.subscribe('/topic/location', function(message) {
+                try {
+                    var location = JSON.parse(message.body);
+                    console.log('Nueva ubicación recibida:', location);
+
+                    // Verificar si los datos son válidos
+                    if (location.lat && location.lon) {
+                        marker.setLatLng([location.lat, location.lon]);
+                        map.panTo([location.lat, location.lon]);
+                        coordsDiv.innerHTML = `Coordenadas: Lat: ${location.lat.toFixed(6)}, Lon: ${location.lon.toFixed(6)}`;
+                        lastUpdate = Date.now();
+                    }
+                } catch (error) {
+                    console.error('Error procesando mensaje:', error);
+                }
+            });
+        }, function(error) {
+            statusDiv.innerHTML = 'Estado: Error de conexión';
+            console.error('Error de conexión:', error);
+            // Reintentar conexión después de 5 segundos
+            setTimeout(connect, 5000);
         });
-    });
+
+        socket.onclose = function() {
+            statusDiv.innerHTML = 'Estado: Desconectado';
+            // Reintentar conexión después de 5 segundos
+            setTimeout(connect, 5000);
+        };
+    }
+
+    // Iniciar conexión
+    connect();
+
+    // Verificar actualizaciones
+    setInterval(function() {
+        if (Date.now() - lastUpdate > 5000) {
+            statusDiv.innerHTML = 'Estado: Sin actualizaciones recientes';
+        }
+    }, 5000);
 </script>
 </body>
 </html>
